@@ -1,0 +1,15 @@
+{
+  "type": "record",
+  "name": "SensorReading",
+  "namespace": "com.github.churtado.sensor.avro",
+  "version": "1",
+  "fields": [
+    { "name": "reading_id", "type": "int", "doc": "Monotonically ascending integer id of sensor readings" },
+    { "name": "reading_guid", "type": [ "null", "string" ], "default": null, "doc": "GUID of a reading within the context of an execution of the reading generator app" },
+    { "name": "reading_timestamp", "type": { "type": "long", "connect.version": 1,  "connect.name": "org.apache.kafka.connect.data.Timestamp",  "logicalType": "timestamp-millis" }, "doc": "Epoch timestamp that represents the time at which the reading was made"},
+    { "name": "reading_value", "type": [ "null",  "double" ], "default": null, "doc": "Value registered by the sensor" },
+    { "name": "reading_description", "type": [ "null", "string" ], "default": null, "doc": "Description of the reading for additional context" },
+    { "name": "sensor_id", "type": [ "null", "string" ], "default": null, "doc": "Sensor id of the reading" }
+  ],
+  "connect.name": "sensor_reading"
+}
