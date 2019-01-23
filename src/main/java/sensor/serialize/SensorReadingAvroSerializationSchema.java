@@ -1,4 +1,4 @@
-package sensor;
+package sensor.serialize;
 
 
 import com.github.churtado.sensor.avro.SensorReading;
