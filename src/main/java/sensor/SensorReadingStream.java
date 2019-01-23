@@ -45,21 +45,21 @@ public class SensorReadingStream {
 
 
         // window by 5 seconds, calculate avg and sink to influxdb
-        readings
-                .setParallelism(4)
-                .assignTimestampsAndWatermarks(new SensorTimeAssigner(Time.seconds(5)))
-                .keyBy(new KeySelector<SensorReading, String>() {
-                    @Override
-                    public String getKey(SensorReading sensorReading) throws Exception {
-                        return sensorReading.getSensorId();
-                    }
-                })
-                .timeWindow(Time.seconds(5))
-                .apply(new AverageFunction())
+//        readings
+//                .setParallelism(4)
+//                .assignTimestampsAndWatermarks(new SensorTimeAssigner(Time.seconds(5)))
+//                .keyBy(new KeySelector<SensorReading, String>() {
+//                    @Override
+//                    public String getKey(SensorReading sensorReading) throws Exception {
+//                        return sensorReading.getSensorId();
+//                    }
+//                })
+//                .timeWindow(Time.seconds(5))
+//                .apply(new AverageFunction())
 //                .map(new MapToString())
 //                .print();
-                .map( new MapSensorReadingToInfluxDb("5s_temp_avg") )
-                .addSink(new InfluxDBSink(influxDBConfig));
+//                .map( new MapSensorReadingToInfluxDb("5s_temp_avg") )
+//                .addSink(new InfluxDBSink(influxDBConfig));
 
         env.execute();
 
