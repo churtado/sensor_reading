@@ -46,13 +46,12 @@ public class SensorReadingStream {
         readings
                 .setParallelism(4)
                 .assignTimestampsAndWatermarks(new SensorTimeAssigner(Time.seconds(5)))
-                .map( new MapSensorReadingToInfluxDb("temperature_readings") )
+                .map( new MapSensorReadingToInfluxDb() )
                 .addSink(new InfluxDBSink(influxDBConfig));
 
 
         // smoke alerts
         DataStream<SmokeAlert> smokeAlerts = setupSmokeAlerts(env);
-
         smokeAlerts
                 .assignTimestampsAndWatermarks(new SmokeAlertTimeAssigner(Time.seconds(5)))
                 .map(new MapSmokeAlertToInfluxDb())
@@ -66,8 +65,9 @@ public class SensorReadingStream {
                         5, TimeUnit.SECONDS,  // timeout requests after 5 seconds
                         100                   // at most 100 concurrent requests
                 );
-
-        sensorPressure.print();
+        sensorPressure
+                .map(new MapPressureToInfluxDb())
+                .addSink(new InfluxDBSink(influxDBConfig));
 
         env.execute();
 
@@ -158,16 +158,6 @@ public class SensorReadingStream {
 
 class MapSensorReadingToInfluxDb extends RichMapFunction<SensorReading, InfluxDBPoint>{
 
-    String measurement;
-    Iterable<String> tags;
-    Iterable<String> fields;
-
-    public MapSensorReadingToInfluxDb(String measurement) {
-        this.measurement = measurement;
-        this.tags = tags;
-        this.fields = fields;
-    }
-
     @Override
     public InfluxDBPoint map(SensorReading s) throws Exception {
 
@@ -177,7 +167,7 @@ class MapSensorReadingToInfluxDb extends RichMapFunction<SensorReading, InfluxDB
         HashMap<String, Object> fields = new HashMap<>();
         fields.put("temperature", s.getReadingValue());
 
-        return new InfluxDBPoint(this.measurement, s.getReadingTimestamp().getMillis(), tags, fields);
+        return new InfluxDBPoint("temperature_readings", s.getReadingTimestamp().getMillis(), tags, fields);
     }
 }
 
@@ -193,6 +183,21 @@ class MapSmokeAlertToInfluxDb extends RichMapFunction<SmokeAlert, InfluxDBPoint>
         fields.put("count", s.count);
 
         return new InfluxDBPoint("smoke_alerts", s.timestamp, tags, fields);
+    }
+}
+
+class MapPressureToInfluxDb extends RichMapFunction<Tuple2<String, Double>, InfluxDBPoint>{
+
+    @Override
+    public InfluxDBPoint map(Tuple2<String, Double> t) throws Exception {
+
+        HashMap<String, String> tags = new HashMap<>();
+        tags.put("sensor", t.f0);
+
+        HashMap<String, Object> fields = new HashMap<>();
+        fields.put("pressure", t.f1);
+
+        return new InfluxDBPoint("sensor_pressure", new DateTime().getMillis(), tags, fields);
     }
 }
 
