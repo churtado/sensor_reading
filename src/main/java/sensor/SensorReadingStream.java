@@ -45,8 +45,9 @@ public class SensorReadingStream {
         // raw numbers
         readings
                 .setParallelism(4)
-                .assignTimestampsAndWatermarks(new SensorTimeAssigner(Time.seconds(5)))
+                .assignTimestampsAndWatermarks(new SensorTimeAssigner(Time.seconds(5)))//.print();
                 .map( new MapSensorReadingToInfluxDb() )
+//                .print();
                 .addSink(new InfluxDBSink(influxDBConfig));
 
 
@@ -125,7 +126,7 @@ public class SensorReadingStream {
                 topic,
                 ConfluentRegistryAvroDeserializationSchema.forSpecific(SensorReading.class, schemaRegistryUrl),
                 config);
-        consumer011.setStartFromEarliest();
+        consumer011.setStartFromLatest();
 
         return consumer011;
     }
