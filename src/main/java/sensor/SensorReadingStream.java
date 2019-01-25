@@ -4,9 +4,12 @@ import com.github.churtado.sensor.avro.SensorReading;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.api.common.restartstrategy.RestartStrategies;
-import org.apache.flink.api.java.functions.KeySelector;
+import org.apache.flink.api.common.serialization.SimpleStringSchema;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.formats.avro.registry.confluent.ConfluentRegistryAvroDeserializationSchema;
 import org.apache.flink.streaming.api.TimeCharacteristic;
+import org.apache.flink.streaming.api.datastream.AsyncDataStream;
+import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.windowing.time.Time;
@@ -14,10 +17,13 @@ import org.apache.flink.streaming.connectors.influxdb.InfluxDBConfig;
 import org.apache.flink.streaming.connectors.influxdb.InfluxDBPoint;
 import org.apache.flink.streaming.connectors.influxdb.InfluxDBSink;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer011;
+import org.joda.time.DateTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sensor.config.SensorTimeAssigner;
-import sensor.functions.AverageFunction;
+import sensor.config.SmokeAlertTimeAssigner;
+import sensor.functions.PostgresAsyncFunction;
+import sensor.utils.SmokeAlert;
 
 import java.util.HashMap;
 import java.util.Properties;
@@ -44,22 +50,24 @@ public class SensorReadingStream {
                 .addSink(new InfluxDBSink(influxDBConfig));
 
 
-        // window by 5 seconds, calculate avg and sink to influxdb
-//        readings
-//                .setParallelism(4)
-//                .assignTimestampsAndWatermarks(new SensorTimeAssigner(Time.seconds(5)))
-//                .keyBy(new KeySelector<SensorReading, String>() {
-//                    @Override
-//                    public String getKey(SensorReading sensorReading) throws Exception {
-//                        return sensorReading.getSensorId();
-//                    }
-//                })
-//                .timeWindow(Time.seconds(5))
-//                .apply(new AverageFunction())
-//                .map(new MapToString())
-//                .print();
-//                .map( new MapSensorReadingToInfluxDb("5s_temp_avg") )
-//                .addSink(new InfluxDBSink(influxDBConfig));
+        // smoke alerts
+        DataStream<SmokeAlert> smokeAlerts = setupSmokeAlerts(env);
+
+        smokeAlerts
+                .assignTimestampsAndWatermarks(new SmokeAlertTimeAssigner(Time.seconds(5)))
+                .map(new MapSmokeAlertToInfluxDb())
+                .addSink(new InfluxDBSink(influxDBConfig));
+
+        // sensor pressure using async lookup
+        DataStream<Tuple2<String, Double>> sensorPressure = AsyncDataStream
+                .orderedWait(
+                        readings,
+                        new PostgresAsyncFunction(),
+                        5, TimeUnit.SECONDS,  // timeout requests after 5 seconds
+                        100                   // at most 100 concurrent requests
+                );
+
+        sensorPressure.print();
 
         env.execute();
 
@@ -122,6 +130,30 @@ public class SensorReadingStream {
         return consumer011;
     }
 
+    private static DataStream<SmokeAlert> setupSmokeAlerts(StreamExecutionEnvironment env) {
+
+        Properties properties = new Properties();
+        properties.setProperty("bootstrap.servers", "localhost:29092");
+
+        properties.setProperty("group.id", "smoke_alerts_group");
+
+        DataStream<SmokeAlert> result = env
+                .addSource(new FlinkKafkaConsumer011<String>("smoke_alerts", new SimpleStringSchema(), properties))
+                .map(new MapFunction<String, SmokeAlert>() {
+                    @Override
+                    public SmokeAlert map(String s) throws Exception {
+                        SmokeAlert a = new SmokeAlert();
+                        a.sensorId = s;
+                        a.count = 1;
+                        a.timestamp = new DateTime().getMillis();
+                        return a;
+                    }
+                });
+
+        return result;
+
+    }
+
 }
 
 class MapSensorReadingToInfluxDb extends RichMapFunction<SensorReading, InfluxDBPoint>{
@@ -146,6 +178,21 @@ class MapSensorReadingToInfluxDb extends RichMapFunction<SensorReading, InfluxDB
         fields.put("temperature", s.getReadingValue());
 
         return new InfluxDBPoint(this.measurement, s.getReadingTimestamp().getMillis(), tags, fields);
+    }
+}
+
+class MapSmokeAlertToInfluxDb extends RichMapFunction<SmokeAlert, InfluxDBPoint>{
+
+    @Override
+    public InfluxDBPoint map(SmokeAlert s) throws Exception {
+
+        HashMap<String, String> tags = new HashMap<>();
+        tags.put("sensor", s.sensorId);
+
+        HashMap<String, Object> fields = new HashMap<>();
+        fields.put("count", s.count);
+
+        return new InfluxDBPoint("smoke_alerts", s.timestamp, tags, fields);
     }
 }
 
